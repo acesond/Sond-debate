@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sond Office — 사람과 AI의 단체 채팅방</title>
+<style>
+:root{--bg:#f4f1ea;--panel:#fff;--ink:#1d1b18;--sub:#77716a;--line:#e3ddd2;--me:#2b5cff;--accent:#ff6a3d}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,"Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+#app{max-width:720px;margin:0 auto;height:100%;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header small{color:var(--sub);font-weight:400;font-size:12px;margin-left:6px}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:7px 11px;cursor:pointer;color:var(--ink)}
+button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+button.danger{color:#c0392b}
+button:disabled{opacity:.45}
+#members{display:flex;gap:6px;overflow-x:auto;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.chip{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:13px;white-space:nowrap;border:1px solid var(--line);cursor:pointer}
+.chip.off{opacity:.4}
+.dot{width:9px;height:9px;border-radius:50%}
+#log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.msg{display:flex;flex-direction:column;max-width:86%}
+.msg .who{font-size:12px;color:var(--sub);margin:0 4px 3px;display:flex;align-items:center;gap:5px}
+.msg .bubble{padding:9px 12px;border-radius:14px;background:var(--panel);border:1px solid var(--line);white-space:pre-wrap;word-break:break-word;line-height:1.5;font-size:15px}
+.msg.me{align-self:flex-end}
+.msg.me .who{justify-content:flex-end}
+.msg.me .bubble{background:var(--me);color:#fff;border-color:var(--me)}
+.msg.err .bubble{background:#fff2f0;border-color:#f3c2bb;color:#a33}
+.msg.sys{align-self:center;max-width:100%}
+.msg.sys .bubble{background:transparent;border:none;color:var(--sub);font-size:12px;padding:2px}
+.typing{font-size:13px;color:var(--sub);padding:0 18px 6px}
+footer{background:var(--panel);border-top:1px solid var(--line);padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+.row{display:flex;gap:6px;align-items:flex-end}
+textarea{flex:1;resize:none;font:inherit;font-size:15px;border:1px solid var(--line);border-radius:12px;padding:9px 11px;max-height:140px;min-height:42px;background:#fbfaf7;color:var(--ink)}
+select,input{font:inherit;font-size:14px;border:1px solid var(--line);border-radius:9px;padding:7px 9px;background:#fbfaf7;color:var(--ink);width:100%}
+.tools{display:flex;gap:6px;margin-bottom:7px;align-items:center;flex-wrap:wrap;font-size:13px}
+.tools select{width:auto}
+.tools input{width:58px}
+dialog{border:none;border-radius:16px;padding:0;width:min(560px,94vw);max-height:88vh;background:var(--panel);color:var(--ink)}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+.dlg{padding:16px;overflow-y:auto;max-height:88vh}
+.dlg h2{margin:0 0 10px;font-size:17px}
+.dlg h3{margin:16px 0 6px;font-size:14px}
+.dlg label{display:block;font-size:12px;color:var(--sub);margin:8px 0 3px}
+.dlg .hint{font-size:12px;color:var(--sub);line-height:1.5}
+.card{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.actions{display:flex;gap:6px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+textarea.persona{width:100%;min-height:60px;font-size:13px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="roomTitle">Sond Office</h1>
+    <button id="btnMembers">👥 멤버</button>
+    <button id="btnSettings">⚙️</button>
+  </header>
+  <div id="members"></div>
+  <div id="log"></div>
+  <div class="typing" id="typing"></div>
+  <footer>
+    <div class="tools">
+      <span>응답:</span>
+      <select id="mode">
+        <option value="all">전원 순서대로</option>
+        <option value="one">한 명 랜덤</option>
+        <option value="none">응답 안 함</option>
+      </select>
+      <button id="btnAuto" title="AI끼리 이어서 대화">🔁 AI끼리</button>
+      <input id="autoN" type="number" min="1" max="30" value="4" title="몇 턴">
+      <span>턴</span>
+      <button id="btnStop" class="danger" disabled>■ 중지</button>
+    </div>
+    <div class="row">
+      <textarea id="input" rows="1" placeholder="메시지 입력 · @이름 으로 특정 AI만 호출"></textarea>
+      <button id="btnSend" class="primary">전송</button>
+    </div>
+  </footer>
+</div>
+
+<!-- 설정 -->
+<dialog id="dlgSettings"><div class="dlg">
+  <h2>⚙️ 설정</h2>
+  <p class="hint">API 키는 이 브라우저(localStorage)에만 저장되고, 각 AI 회사 서버로만 전송돼요. 코드나 GitHub에 키를 넣지 마세요.</p>
+  <label>방 이름</label><input id="sRoom">
+  <label>내 이름</label><input id="sMe">
+  <h3>API 키</h3>
+  <label>OpenAI (ChatGPT)</label><input id="kOpenai" type="password" placeholder="sk-...">
+  <label>Google (Gemini)</label><input id="kGemini" type="password" placeholder="AIza...">
+  <label>Anthropic (Claude)</label><input id="kAnthropic" type="password" placeholder="sk-ant-...">
+  <h3>외부 에이전트 (OpenAI 호환 API)</h3>
+  <p class="hint">OpenRouter, Groq, 로컬 서버 등 /chat/completions 형식을 지원하는 곳이면 연결돼요.</p>
+  <label>Base URL</label><input id="kCustomUrl" placeholder="https://openrouter.ai/api/v1">
+  <label>API 키</label><input id="kCustom" type="password">
+  <h3>대화 설정</h3>
+  <label>AI가 볼 최근 메시지 수</label><input id="sCtx" type="number" min="5" max="200">
+  <label>답변 최대 길이(토큰)</label><input id="sMax" type="number" min="100" max="4000">
+  <div class="actions">
+    <button id="btnExport">대화 내보내기</button>
+    <button id="btnClear" class="danger">대화 지우기</button>
+    <button id="btnSaveSettings" class="primary">저장</button>
+  </div>
+</div></dialog>
+
+<!-- 멤버 -->
+<dialog id="dlgMembers"><div class="dlg">
+  <h2>👥 AI 멤버 (최대 10명)</h2>
+  <div id="memberList"></div>
+  <div class="actions">
+    <button id="btnAddBot">+ AI 추가</button>
+    <button id="btnSaveMembers" class="primary">저장</button>
+  </div>
+</div></dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const COLORS = ['#ff6a3d','#10a37f','#4285f4','#d97757','#9b59b6','#e67e22','#16a085','#c0392b','#2c3e50','#f1c40f'];
+const PROVIDERS = {
+  openai:   {label:'ChatGPT', model:'gpt-4o-mini'},
+  gemini:   {label:'Gemini',  model:'gemini-2.5-flash'},
+  anthropic:{label:'Claude',  model:'claude-sonnet-5-5'},
+  custom:   {label:'외부 에이전트', model:'openai/gpt-4o-mini'}
+};
+const store = {
+  get(k,d){ try{ const v=localStorage.getItem('so_'+k); return v?JSON.parse(v):d }catch(e){ return d } },
+  set(k,v){ try{ localStorage.setItem('so_'+k, JSON.stringify(v)) }catch(e){} }
+};
+
+let settings = store.get('settings', {room:'Sond Office', me:'나', ctx:40, max:800,
+  keys:{openai:'',gemini:'',anthropic:'',custom:'',customUrl:''}});
+let bots = store.get('bots', [
+  {id:'b1', name:'Claude', provider:'anthropic', model:PROVIDERS.anthropic.model, color:COLORS[3], on:true, persona:'신중하고 논리적인 분석가.'},
+  {id:'b2', name:'ChatGPT', provider:'openai', model:PROVIDERS.openai.model, color:COLORS[1], on:true, persona:'아이디어가 많은 실행가.'},
+  {id:'b3', name:'Gemini', provider:'gemini', model:PROVIDERS.gemini.model, color:COLORS[2], on:true, persona:'자료와 근거를 중시하는 리서처.'}
+]);
+let msgs = store.get('msgs', []);
+let busy = false, stopFlag = false;
+
+function save(){ store.set('settings',settings); store.set('bots',bots); store.set('msgs',msgs); }
+
+/* ---------- 렌더링 ---------- */
+function renderHeader(){
+  const on = bots.filter(b=>b.on).length;
+  $('#roomTitle').innerHTML = esc(settings.room) + `<small>사람 1 · AI ${on}</small>`;
+  $('#members').innerHTML = bots.map(b=>
+    `<span class="chip ${b.on?'':'off'}" data-id="${b.id}" title="탭해서 켜기/끄기"><span class="dot" style="background:${b.color}"></span>${esc(b.name)}</span>`).join('');
+  document.querySelectorAll('#members .chip').forEach(c=>c.onclick=()=>{
+    const b=bots.find(x=>x.id===c.dataset.id); b.on=!b.on; save(); renderHeader();
+  });
+}
+function renderLog(){
+  const log=$('#log');
+  if(!msgs.length){
+    log.innerHTML = `<div class="msg sys"><div class="bubble">⚙️에서 API 키를 넣고, 👥에서 AI 멤버를 정한 뒤 대화를 시작하세요.\n@이름 으로 특정 AI만 부를 수 있고, 🔁 버튼으로 AI끼리 토론을 이어가게 할 수 있어요.</div></div>`;
+    return;
+  }
+  log.innerHTML = msgs.map(m=>{
+    if(m.role==='sys') return `<div class="msg sys"><div class="bubble">${esc(m.text)}</div></div>`;
+    const me = m.role==='user';
+    const b = bots.find(x=>x.id===m.botId);
+    const color = me ? 'var(--me)' : (b?b.color:'#999');
+    return `<div class="msg ${me?'me':''} ${m.err?'err':''}">
+      <div class="who"><span class="dot" style="background:${color}"></span>${esc(m.name)}</div>
+      <div class="bubble">${esc(m.text)}</div></div>`;
+  }).join('');
+  log.scrollTop = log.scrollHeight;
+}
+function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function setBusy(v, who=''){
+  busy=v; $('#btnSend').disabled=v; $('#btnAuto').disabled=v; $('#btnStop').disabled=!v;
+  $('#typing').textContent = who ? `${who} 입력 중…` : '';
+}
+
+/* ---------- AI 호출 ---------- */
+function buildPrompt(bot){
+  const others = bots.filter(b=>b.on && b.id!==bot.id).map(b=>b.name).join(', ') || '없음';
+  const system =
+`당신은 "${settings.room}"라는 단체 채팅방의 참가자 "${bot.name}"입니다.
+역할/성격: ${bot.persona || '자유롭게'}
+참가자: 사람 "${settings.me}", 다른 AI: ${others}.
+규칙:
+- 채팅방 메시지처럼 자연스럽고 간결하게, 한 번에 한 메시지만 답하세요.
+- 다른 참가자의 의견에 동의·반박·보완하며 대화를 발전시키세요. 앞사람 말을 그대로 반복하지 마세요.
+- 답변 앞에 자기 이름이나 "[${bot.name}]:" 같은 접두어를 붙이지 마세요.
+- 다른 참가자인 척 대신 말하지 마세요.`;
+  const recent = msgs.filter(m=>m.role!=='sys' && !m.err).slice(-settings.ctx);
+  const transcript = recent.map(m=>`[${m.name}]: ${m.text}`).join('\n\n');
+  const user = `--- 지금까지의 채팅 ---\n${transcript || '(아직 대화 없음)'}\n--- 끝 ---\n\n이제 "${bot.name}"(으)로서 다음 메시지를 작성하세요.`;
+  return {system, user};
+}
+
+async function callBot(bot){
+  const {system,user} = buildPrompt(bot);
+  const k = settings.keys, max = Number(settings.max)||800;
+  let res, data;
+  if(bot.provider==='anthropic'){
+    if(!k.anthropic) throw new Error('Anthropic API 키가 없어요 (⚙️ 설정)');
+    res = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{
+      'content-type':'application/json','x-api-key':k.anthropic,'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:bot.model,max_tokens:max,system,messages:[{role:'user',content:user}]})});
+    data = await res.json(); if(!res.ok) throw new Error(data?.error?.message||res.status);
+    return data.content.filter(c=>c.type==='text').map(c=>c.text).join('\n');
+  }
+  if(bot.provider==='gemini'){
+    if(!k.gemini) throw new Error('Gemini API 키가 없어요 (⚙️ 설정)');
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(bot.model)}:generateContent`,{
+      method:'POST',headers:{'content-type':'application/json','x-goog-api-key':k.gemini},
+      body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:user}]}],
+        generationConfig:{maxOutputTokens:max}})});
+    data = await res.json(); if(!res.ok) throw new Error(data?.error?.message||res.status);
+    return (data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('') || '(빈 응답)';
+  }
+  // openai / custom (OpenAI 호환)
+  const isCustom = bot.provider==='custom';
+  const key = isCustom ? k.custom : k.openai;
+  const base = isCustom ? (k.customUrl||'').replace(/\/$/,'') : 'https://api.openai.com/v1';
+  if(!key) throw new Error(`${isCustom?'외부 에이전트':'OpenAI'} API 키가 없어요 (⚙️ 설정)`);
+  if(!base) throw new Error('외부 에이전트 Base URL이 없어요 (⚙️ 설정)');
+  res = await fetch(base+'/chat/completions',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+key},
+    body:JSON.stringify({model:bot.model,max_completion_tokens:max,messages:[{role:'system',content:system},{role:'user',content:user}]})});
+  data = await res.json(); if(!res.ok) throw new Error(data?.error?.message||res.status);
+  return data.choices?.[0]?.message?.content || '(빈 응답)';
+}
+
+async function runBots(list){
+  for(const bot of list){
+    if(stopFlag) break;
+    setBusy(true, bot.name);
+    try{
+      const text = (await callBot(bot)).trim().replace(new RegExp('^\\[?'+bot.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\]?\\s*[:：]\\s*'),'');
+      msgs.push({role:'bot',botId:bot.id,name:bot.name,text,t:Date.now()});
+    }catch(e){
+      msgs.push({role:'bot',botId:bot.id,name:bot.name,text:'⚠️ '+e.message,err:true,t:Date.now()});
+    }
+    save(); renderLog();
+  }
+}
+
+/* ---------- 전송 ---------- */
+function pickResponders(text){
+  const active = bots.filter(b=>b.on);
+  const mentioned = active.filter(b=>text.includes('@'+b.name));
+  if(mentioned.length) return mentioned;
+  const mode=$('#mode').value;
+  if(mode==='none') return [];
+  if(mode==='one') return active.length?[active[Math.floor(Math.random()*active.length)]]:[];
+  return active;
+}
+async function send(){
+  if(busy) return;
+  const text=$('#input').value.trim(); if(!text) return;
+  $('#input').value=''; autoGrow();
+  msgs.push({role:'user',name:settings.me,text,t:Date.now()}); save(); renderLog();
+  stopFlag=false;
+  await runBots(pickResponders(text));
+  setBusy(false);
+}
+async function autoTalk(){
+  if(busy) return;
+  const active=bots.filter(b=>b.on);
+  if(active.length<2){ alert('AI끼리 대화하려면 켜진 AI가 2명 이상 필요해요.'); return; }
+  const n=Math.min(30,Math.max(1,Number($('#autoN').value)||4));
+  // 마지막으로 말한 AI 다음 순서부터 이어가기
+  const lastBot=[...msgs].reverse().find(m=>m.role==='bot');
+  let i = lastBot ? (active.findIndex(b=>b.id===lastBot.botId)+1) : 0;
+  const order=[]; for(let t=0;t<n;t++) order.push(active[(i+t)%active.length]);
+  stopFlag=false;
+  await runBots(order);
+  setBusy(false);
+}
+
+/* ---------- 설정/멤버 다이얼로그 ---------- */
+function openSettings(){
+  $('#sRoom').value=settings.room; $('#sMe').value=settings.me;
+  $('#sCtx').value=settings.ctx; $('#sMax').value=settings.max;
+  $('#kOpenai').value=settings.keys.openai; $('#kGemini').value=settings.keys.gemini;
+  $('#kAnthropic').value=settings.keys.anthropic; $('#kCustom').value=settings.keys.custom;
+  $('#kCustomUrl').value=settings.keys.customUrl;
+  $('#dlgSettings').showModal();
+}
+$('#btnSaveSettings').onclick=()=>{
+  settings.room=$('#sRoom').value.trim()||'Sond Office'; settings.me=$('#sMe').value.trim()||'나';
+  settings.ctx=Number($('#sCtx').value)||40; settings.max=Number($('#sMax').value)||800;
+  Object.assign(settings.keys,{openai:$('#kOpenai').value.trim(),gemini:$('#kGemini').value.trim(),
+    anthropic:$('#kAnthropic').value.trim(),custom:$('#kCustom').value.trim(),customUrl:$('#kCustomUrl').value.trim()});
+  save(); renderHeader(); $('#dlgSettings').close();
+};
+$('#btnClear').onclick=()=>{ if(confirm('대화 내용을 모두 지울까요? 되돌릴 수 없어요.')){ msgs=[]; save(); renderLog(); $('#dlgSettings').close(); } };
+$('#btnExport').onclick=()=>{
+  const txt=msgs.filter(m=>m.role!=='sys').map(m=>`[${m.name}] ${m.text}`).join('\n\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));
+  a.download=`${settings.room}-${new Date().toISOString().slice(0,10)}.txt`; a.click();
+};
+
+function memberCard(b,idx){
+  const opts=Object.entries(PROVIDERS).map(([k,v])=>`<option value="${k}" ${b.provider===k?'selected':''}>${v.label}</option>`).join('');
+  return `<div class="card" data-idx="${idx}">
+    <div class="grid2">
+      <div><label>이름 (@호출용)</label><input class="mName" value="${esc(b.name)}"></div>
+      <div><label>AI 종류</label><select class="mProv">${opts}</select></div>
+      <div><label>모델</label><input class="mModel" value="${esc(b.model)}"></div>
+      <div><label>색상</label><input class="mColor" type="color" value="${b.color}"></div>
+    </div>
+    <label>역할 / 성격 (예: 하버드 토론팀 찬성측 1번 연사)</label>
+    <textarea class="persona mPersona">${esc(b.persona)}</textarea>
+    <div class="actions"><button class="danger mDel">삭제</button></div>
+  </div>`;
+}
+function readMemberForm(){
+  document.querySelectorAll('#memberList .card').forEach(c=>{
+    const b=bots[c.dataset.idx];
+    b.name=c.querySelector('.mName').value.trim()||'AI'; b.provider=c.querySelector('.mProv').value;
+    b.model=c.querySelector('.mModel').value.trim()||PROVIDERS[b.provider].model;
+    b.color=c.querySelector('.mColor').value; b.persona=c.querySelector('.mPersona').value;
+  });
+}
+function renderMembers(){
+  $('#memberList').innerHTML=bots.map(memberCard).join('');
+  document.querySelectorAll('#memberList .card').forEach(c=>{
+    c.querySelector('.mProv').onchange=e=>{ c.querySelector('.mModel').value=PROVIDERS[e.target.value].model; };
+    c.querySelector('.mDel').onclick=()=>{ readMemberForm(); bots.splice(Number(c.dataset.idx),1); renderMembers(); };
+  });
+}
+$('#btnAddBot').onclick=()=>{
+  readMemberForm();
+  if(bots.length>=10){ alert('AI는 최대 10명까지예요.'); return; }
+  bots.push({id:'b'+Date.now(),name:'AI'+(bots.length+1),provider:'openai',model:PROVIDERS.openai.model,
+    color:COLORS[bots.length%COLORS.length],on:true,persona:''});
+  renderMembers();
+};
+$('#btnSaveMembers').onclick=()=>{
+  readMemberForm();
+  const names=bots.map(b=>b.name); if(new Set(names).size!==names.length){ alert('AI 이름이 겹치지 않게 해주세요 (@호출 때문에).'); return; }
+  save(); renderHeader(); renderLog(); $('#dlgMembers').close();
+};
+
+/* ---------- 이벤트 ---------- */
+function autoGrow(){ const t=$('#input'); t.style.height='auto'; t.style.height=Math.min(140,t.scrollHeight)+'px'; }
+$('#input').addEventListener('input',autoGrow);
+$('#input').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&window.innerWidth>700){ e.preventDefault(); send(); } });
+$('#btnSend').onclick=send;
+$('#btnAuto').onclick=autoTalk;
+$('#btnStop').onclick=()=>{ stopFlag=true; $('#typing').textContent='현재 답변까지만 받고 멈춰요…'; };
+$('#btnSettings').onclick=openSettings;
+$('#btnMembers').onclick=()=>{ renderMembers(); $('#dlgMembers').showModal(); };
+document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{ if(e.target===d) d.close(); }));
+
+renderHeader(); renderLog();
+</script>
+</body>
+</html>
