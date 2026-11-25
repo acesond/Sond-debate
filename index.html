@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 토론장</title>
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--line:#2a2f3a;--text:#e8eaf0;--sub:#9aa3b2;--pro:#3b82f6;--con:#ef4444;--acc:#a78bfa}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:15px;line-height:1.55}
+  header{padding:16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;display:flex;justify-content:space-between;align-items:center}
+  h1{font-size:18px;margin:0}
+  main{max-width:760px;margin:0 auto;padding:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  label{display:block;font-size:13px;color:var(--sub);margin:8px 0 4px}
+  input,textarea,select{width:100%;background:#0b0d11;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:15px;font-family:inherit}
+  textarea{min-height:80px;resize:vertical}
+  button{background:var(--acc);color:#111;border:0;border-radius:8px;padding:11px 14px;font-size:15px;font-weight:700;cursor:pointer}
+  button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  button:disabled{opacity:.45}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .row>*{flex:1}
+  .team{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+  .team:first-of-type{border-top:0}
+  .team b{font-size:15px}
+  .small{font-size:12px;color:var(--sub)}
+  details summary{cursor:pointer;font-weight:700}
+  .msg{border-left:4px solid var(--line);padding:10px 12px;margin:10px 0;background:#12151b;border-radius:0 10px 10px 0}
+  .msg.pro{border-color:var(--pro)} .msg.con{border-color:var(--con)} .msg.judge{border-color:var(--acc)}
+  .msg .who{font-weight:700;font-size:14px;margin-bottom:4px}
+  .msg .txt{white-space:pre-wrap}
+  .stage{margin:18px 0 4px;font-size:13px;color:var(--acc);font-weight:700;letter-spacing:.5px}
+  .err{color:#fca5a5}
+  .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:99px;margin-left:6px}
+  .tag.pro{background:#1e3a8a} .tag.con{background:#7f1d1d}
+  #pickleBox{display:none;border:2px dashed #f59e0b}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎓 AI 토론장</h1>
+  <button class="ghost" id="copyAll" style="padding:7px 10px;font-size:13px">기록 복사</button>
+</header>
+<main>
+
+<details class="card" id="settings">
+  <summary>⚙️ API 키 · 모델 설정</summary>
+  <p class="small">키는 이 브라우저(localStorage)에만 저장돼요. 코드나 서버로 보내지지 않아요. 공용 PC에서는 쓰고 나서 "키 지우기"를 눌러 주세요.</p>
+  <label>Claude (Anthropic) 키</label><input id="k_claude" type="password" placeholder="sk-ant-...">
+  <label>Claude 모델</label><input id="m_claude" value="claude-sonnet-5-5">
+  <label>ChatGPT (OpenAI) 키</label><input id="k_openai" type="password" placeholder="sk-...">
+  <label>ChatGPT 모델</label><input id="m_openai" value="gpt-6-luna">
+  <label>Gemini (Google) 키</label><input id="k_gemini" type="password" placeholder="AIza...">
+  <label>Gemini 모델</label><input id="m_gemini" value="gemini-3.8-flash">
+  <div class="row" style="margin-top:12px">
+    <button id="saveKeys">저장</button>
+    <button class="ghost" id="clearKeys">키 지우기</button>
+  </div>
+</details>
+
+<div class="card">
+  <label>토론 주제</label>
+  <textarea id="topic" placeholder="예: 비트코인은 10년 안에 금을 대체할 것이다"></textarea>
+
+  <label style="margin-top:12px">참가 팀 (키가 없는 AI는 '불참'으로 두세요)</label>
+  <div id="teams"></div>
+
+  <div class="row">
+    <div><label>라운드</label>
+      <select id="rounds">
+        <option value="3">입론 → 반론 → 최종변론</option>
+        <option value="4">입론 → 반론 → 재반론 → 최종변론</option>
+        <option value="1">입론만 (빠른 테스트)</option>
+      </select></div>
+    <div><label>심판</label>
+      <select id="judge">
+        <option value="gemini">Gemini</option>
+        <option value="claude">Claude</option>
+        <option value="openai">ChatGPT</option>
+        <option value="none">심판 없음</option>
+      </select></div>
+  </div>
+  <label>발언 길이</label>
+  <select id="len">
+    <option value="300">짧게 (300자 안팎)</option>
+    <option value="600" selected>보통 (600자 안팎)</option>
+    <option value="1000">길게 (1000자 안팎)</option>
+  </select>
+  <div class="row" style="margin-top:14px">
+    <button id="start">토론 시작</button>
+    <button class="ghost" id="stop" disabled>중지</button>
+  </div>
+</div>
+
+<div class="card" id="pickleBox">
+  <b>🥒 피클 차례예요</b>
+  <p class="small">① 아래 '질문 복사'를 눌러 피클에게 붙여넣고 → ② 피클의 답을 받아 아래 칸에 붙여넣은 뒤 '제출'을 누르세요.</p>
+  <div class="row"><button class="ghost" id="copyPrompt">질문 복사</button><button class="ghost" id="skipPickle">이번 차례 건너뛰기</button></div>
+  <textarea id="pickleAnswer" placeholder="피클의 답변을 여기에 붙여넣기" style="margin-top:8px"></textarea>
+  <button id="submitPickle" style="margin-top:8px;width:100%">제출</button>
+</div>
+
+<div id="log"></div>
+</main>
+
+<script>
+const AI = {
+  claude:{name:'Claude', emoji:'🟠'},
+  openai:{name:'ChatGPT', emoji:'🟢'},
+  gemini:{name:'Gemini', emoji:'🔵'},
+  pickle:{name:'피클', emoji:'🥒'}
+};
+const DEFAULT_TEAMS = [
+  {ai:'claude', school:'하버드', side:'pro'},
+  {ai:'openai', school:'MIT', side:'con'},
+  {ai:'gemini', school:'미시간', side:'pro'},
+  {ai:'pickle', school:'UBC', side:'con'}
+];
+const SIDE = {pro:'찬성', con:'반대', off:'불참'};
+const $ = id => document.getElementById(id);
+const store = {
+  get(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:v; }catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+
+// ---------- 설정 ----------
+['k_claude','k_openai','k_gemini','m_claude','m_openai','m_gemini'].forEach(id=>{
+  const v = store.get('arena_'+id, null); if(v!==null) $(id).value = v;
+});
+$('saveKeys').onclick = ()=>{
+  ['k_claude','k_openai','k_gemini','m_claude','m_openai','m_gemini'].forEach(id=>store.set('arena_'+id,$(id).value.trim()));
+  alert('저장했어요');
+};
+$('clearKeys').onclick = ()=>{
+  ['k_claude','k_openai','k_gemini'].forEach(id=>{store.del('arena_'+id); $(id).value='';});
+  alert('키를 지웠어요');
+};
+
+// ---------- 팀 ----------
+let teams = DEFAULT_TEAMS;
+try{ const t = JSON.parse(store.get('arena_teams','null')); if(Array.isArray(t)&&t.length===4) teams=t; }catch(e){}
+function renderTeams(){
+  $('teams').innerHTML = teams.map((t,i)=>`
+    <div class="team">
+      <div><b>${AI[t.ai].emoji} ${AI[t.ai].name}</b><br>
+        <input data-i="${i}" data-f="school" value="${esc(t.school)}" style="margin-top:4px;padding:6px"></div>
+      <select data-i="${i}" data-f="side">
+        ${['pro','con','off'].map(s=>`<option value="${s}" ${t.side===s?'selected':''}>${SIDE[s]}</option>`).join('')}
+      </select>
+    </div>`).join('') + '<p class="small">피클은 API가 없어서 차례가 오면 직접 복사·붙여넣기로 참여해요.</p>';
+  $('teams').querySelectorAll('[data-i]').forEach(el=>{
+    el.onchange = ()=>{ teams[el.dataset.i][el.dataset.f]=el.value; store.set('arena_teams',JSON.stringify(teams)); };
+  });
+}
+renderTeams();
+
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- API 호출 ----------
+async function callAI(ai, system, user){
+  const key = $('k_'+ai).value.trim();
+  const model = $('m_'+ai).value.trim();
+  if(!key) throw new Error(AI[ai].name+' API 키가 없어요 (설정에서 입력)');
+  let res, data;
+  if(ai==='openai'){
+    res = await fetch('https://api.openai.com/v1/chat/completions',{
+      method:'POST', signal:ctrl.signal,
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({model, messages:[{role:'system',content:system},{role:'user',content:user}]})
+    });
+    data = await res.json();
+    if(!res.ok) throw new Error(data.error?.message || res.status);
+    return data.choices[0].message.content;
+  }
+  if(ai==='claude'){
+    res = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST', signal:ctrl.signal,
+      headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model, max_tokens:2000, system, messages:[{role:'user',content:user}]})
+    });
+    data = await res.json();
+    if(!res.ok) throw new Error(data.error?.message || res.status);
+    return data.content.filter(c=>c.type==='text').map(c=>c.text).join('\n');
+  }
+  if(ai==='gemini'){
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{
+      method:'POST', signal:ctrl.signal,
+      headers:{'Content-Type':'application/json','x-goog-api-key':key},
+      body:JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents:[{role:'user',parts:[{text:user}]}]})
+    });
+    data = await res.json();
+    if(!res.ok) throw new Error(data.error?.message || res.status);
+    return (data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('\n') || '(빈 응답)';
+  }
+}
+
+// ---------- 피클 수동 입력 ----------
+let pickleResolve = null, currentPrompt = '';
+function askPickle(prompt){
+  currentPrompt = prompt;
+  $('pickleAnswer').value='';
+  $('pickleBox').style.display='block';
+  $('pickleBox').scrollIntoView({behavior:'smooth'});
+  return new Promise(r=>pickleResolve=r);
+}
+function finishPickle(v){ $('pickleBox').style.display='none'; if(pickleResolve){ const r=pickleResolve; pickleResolve=null; r(v); } }
+$('copyPrompt').onclick = async ()=>{
+  try{ await navigator.clipboard.writeText(currentPrompt); alert('복사했어요. 피클에게 붙여넣으세요'); }
+  catch(e){ $('pickleAnswer').value = currentPrompt; alert('자동 복사가 안 돼서 입력칸에 넣었어요. 직접 복사한 뒤 지워 주세요'); }
+};
+$('submitPickle').onclick = ()=>{ const v=$('pickleAnswer').value.trim(); if(!v) return alert('답변을 붙여넣어 주세요'); finishPickle(v); };
+$('skipPickle').onclick = ()=>finishPickle(null);
+
+// ---------- 토론 진행 ----------
+let ctrl = null, running = false, transcript = [];
+const ROUND_SETS = {
+  1:['입론'], 3:['입론','반론','최종변론'], 4:['입론','반론','재반론','최종변론']
+};
+const ROUND_GUIDE = {
+  '입론':'우리 팀 입장의 핵심 논거 2~3개를 근거와 함께 제시하라.',
+  '반론':'지금까지 상대 팀이 한 주장 중 가장 강한 것을 골라 이름을 들어 직접 반박하라.',
+  '재반론':'우리 팀에 대한 반박에 답하고, 상대 논리의 약점을 한 번 더 파고들어라.',
+  '최종변론':'토론 전체를 정리하고 왜 우리 팀이 이겼는지 심판을 설득하라. 새 논거는 넣지 마라.'
+};
+
+function addStage(t){ $('log').insertAdjacentHTML('beforeend',`<div class="stage">━ ${esc(t)} ━</div>`); }
+function addMsg(cls, who, text){
+  const div = document.createElement('div');
+  div.className='msg '+cls;
+  div.innerHTML = `<div class="who">${who}</div><div class="txt"></div>`;
+  div.querySelector('.txt').textContent = text;
+  $('log').appendChild(div);
+  div.scrollIntoView({behavior:'smooth',block:'end'});
+  return div;
+}
+function label(t){ return `${t.school}(${AI[t.ai].name})`; }
+function transcriptText(){
+  return transcript.map(x=>`[${x.stage}] ${x.who} - ${x.side}\n${x.text}`).join('\n\n');
+}
+
+$('start').onclick = async ()=>{
+  const topic = $('topic').value.trim();
+  if(!topic) return alert('토론 주제를 입력해 주세요');
+  const active = teams.filter(t=>t.side!=='off');
+  if(!active.some(t=>t.side==='pro') || !active.some(t=>t.side==='con')) return alert('찬성과 반대 팀이 최소 1개씩 있어야 해요');
+  // 찬성·반대가 번갈아 발언하도록 정렬
+  const pros = active.filter(t=>t.side==='pro'), cons = active.filter(t=>t.side==='con'), order=[];
+  for(let i=0;i<Math.max(pros.length,cons.length);i++){ if(pros[i]) order.push(pros[i]); if(cons[i]) order.push(cons[i]); }
+
+  running = true; ctrl = new AbortController(); transcript = [];
+  $('start').disabled = true; $('stop').disabled = false;
+  $('log').innerHTML = `<div class="card"><b>주제</b><br>${esc(topic)}<br><span class="small">${order.map(t=>`${label(t)} <span class="tag ${t.side}">${SIDE[t.side]}</span>`).join(' · ')}</span></div>`;
+  const len = $('len').value;
+  const roster = order.map(t=>`${label(t)}: ${SIDE[t.side]}`).join(', ');
+
+  try{
+    for(const stage of ROUND_SETS[$('rounds').value]){
+      if(!running) break;
+      addStage(stage);
+      for(const t of order){
+        if(!running) break;
+        const system = `너는 대학 토론대회에 출전한 ${t.school} 대표 토론자 ${AI[t.ai].name}이다.
+토론 주제: "${topic}"
+너의 입장: ${SIDE[t.side]} (실제 생각과 달라도 이 입장을 끝까지 지켜라)
+참가자: ${roster}
+규칙: 한국어로 ${len}자 안팎. 인사말·자기소개 없이 바로 본론. 같은 편 팀과 겹치지 않는 논점을 내라. 모르는 통계는 지어내지 말고 "추정"이라고 밝혀라.`;
+        const user = (transcript.length? `지금까지의 토론 기록:\n\n${transcriptText()}\n\n` : '아직 아무도 발언하지 않았다.\n\n')
+          + `지금은 [${stage}] 단계, ${label(t)}의 차례다. ${ROUND_GUIDE[stage]}`;
+        const who = `${AI[t.ai].emoji} ${label(t)} <span class="tag ${t.side}">${SIDE[t.side]}</span>`;
+        let text;
+        if(t.ai==='pickle'){
+          text = await askPickle(system+'\n\n'+user);
+          if(!running) break;
+          if(text===null){ addMsg(t.side, who, '(이번 차례 건너뜀)'); continue; }
+        } else {
+          const ph = addMsg(t.side, who, '생각 중…');
+          try{ text = await callAI(t.ai, system, user); ph.querySelector('.txt').textContent = text; }
+          catch(e){
+            if(e.name==='AbortError') break;
+            ph.querySelector('.txt').innerHTML = `<span class="err">오류: ${esc(e.message)}</span>`;
+            continue;
+          }
+        }
+        transcript.push({stage, who:label(t), side:SIDE[t.side], text});
+      }
+    }
+    const judge = $('judge').value;
+    if(running && judge!=='none' && transcript.length){
+      addStage('심판 판정');
+      const ph = addMsg('judge', `⚖️ 심판 ${AI[judge].name}`, '채점 중…');
+      const system = `너는 공정한 대학 토론대회 심판이다. 네가 어느 회사 AI인지와 상관없이 오직 논리, 근거, 반박의 질로만 평가하라.`;
+      const user = `주제: "${topic}"\n\n토론 기록:\n\n${transcriptText()}\n\n다음 형식으로 한국어로 판정하라.
+1) 팀별 점수 (논리/근거/반박/전달, 각 10점 만점, 합계)
+2) 최우수 토론자 1명과 이유
+3) 승리한 입장(찬성/반대)과 결정적 이유
+4) 각 팀에게 한 줄 조언`;
+      try{ const r = await callAI(judge, system, user); ph.querySelector('.txt').textContent = r; transcript.push({stage:'판정',who:'심판 '+AI[judge].name,side:'-',text:r}); }
+      catch(e){ if(e.name!=='AbortError') ph.querySelector('.txt').innerHTML = `<span class="err">오류: ${esc(e.message)}</span>`; }
+    }
+  } finally {
+    running=false; $('start').disabled=false; $('stop').disabled=true;
+    $('pickleBox').style.display='none';
+  }
+};
+
+$('stop').onclick = ()=>{ running=false; if(ctrl) ctrl.abort(); finishPickle(null); };
+$('copyAll').onclick = async ()=>{
+  if(!transcript.length) return alert('아직 기록이 없어요');
+  const txt = `주제: ${$('topic').value}\n\n${transcriptText()}`;
+  try{ await navigator.clipboard.writeText(txt); alert('토론 기록을 복사했어요'); }catch(e){ alert('복사에 실패했어요'); }
+};
+</script>
+</body>
+</html>
